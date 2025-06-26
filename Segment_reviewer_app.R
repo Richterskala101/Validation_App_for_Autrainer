@@ -2,6 +2,8 @@ library(shiny)
 library(tuneR)
 library(seewave)
 library(dplyr)
+library(ggplot2)
+library(pROC)
 
 # ==== Configuration ====
 segment_dir <- "exported_segments"  # Root folder containing class subfolders
@@ -29,7 +31,14 @@ ui <- fluidPage(
       actionButton("prev", "Previous"),
       br(), br(),
       verbatimTextOutput("clip_info"),
-      tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA)
+      tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
+      br(), br(),
+      helpText("This app allows you to manually validate predicted segments from an audio classification model."
+               ,"After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities."
+               ,"Thresholds are calculated for precision levels 0.7, 0.8, and 0.9. A precision-recall curve shows performance over score thresholds."),
+      plotOutput("logisticPlot"),
+      tableOutput("thresholds"),
+      plotOutput("prPlot")
     ),
     mainPanel(
       plotOutput("spectrogram")
@@ -94,6 +103,40 @@ server <- function(input, output, session) {
   
   observe({
     updateAudio(session, "audio", current_file())
+  })
+  
+  output$logisticPlot <- renderPlot({
+    val <- state$data
+    if (sum(!is.na(val$outcome)) < 10) return(NULL)
+    model <- glm(outcome ~ score, family = "binomial", data = val, na.action = na.omit)
+    scores <- seq(0, 1, length.out = 100)
+    probs <- predict(model, newdata = data.frame(score = scores), type = "response")
+    ggplot(data.frame(score = scores, prob = probs), aes(x = score, y = prob)) +
+      geom_line(color = "blue") +
+      labs(title = "Logistic Regression Calibration", x = "Score", y = "Probability Correct") +
+      geom_hline(yintercept = c(0.7, 0.8, 0.9), linetype = "dashed", color = "grey")
+  })
+  
+  output$thresholds <- renderTable({
+    val <- state$data
+    if (sum(!is.na(val$outcome)) < 10) return(NULL)
+    model <- glm(outcome ~ score, family = "binomial", data = val, na.action = na.omit)
+    p_vals <- c(0.7, 0.8, 0.9)
+    thresholds <- sapply(p_vals, function(p) {
+      (log(p / (1 - p)) - coef(model)[1]) / coef(model)[2]
+    })
+    data.frame(Precision = p_vals, Threshold = round(thresholds, 3))
+  })
+  
+  output$prPlot <- renderPlot({
+    val <- state$data
+    if (nrow(val) < 10) return(NULL)
+    pr <- roc(val$outcome, val$score, quiet = TRUE)
+    pr_data <- data.frame(thresholds = pr$thresholds, sensitivities = pr$sensitivities, specificities = pr$specificities)
+    ggplot(pr_data, aes(x = 1 - specificities, y = sensitivities)) +
+      geom_line(color = "darkred") +
+      labs(title = "Precision-Recall (ROC) Curve", x = "False Positive Rate", y = "True Positive Rate") +
+      theme_minimal()
   })
   
   onStop(function() {

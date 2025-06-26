@@ -393,9 +393,8 @@ score = BirdNET or other model score (e.g., [0–1])
 
 outcome = 1 if prediction was correct, 0 if incorrect</code></pre>
 <p>Then:</p>
-<p>model &lt;- glm(outcome ~ score, family = “binomial”, data =
-validation_data) threshold_for_0.9 &lt;- (log(0.9 / (1 - 0.9)) -
-coef(model)[1]) / coef(model)[2]</p>
+<pre><code>model &lt;- glm(outcome ~ score, family = &quot;binomial&quot;, data = validation_data)
+threshold_for_0.9 &lt;- (log(0.9 / (1 - 0.9)) - coef(model)[1]) / coef(model)[2]</code></pre>
 </div>
 </div>
 <div id="app-workflow" class="section level2">
@@ -408,6 +407,29 @@ real-world probabilities.</li>
 <li>Precision thresholds (e.g., for 0.7, 0.8, 0.9 probability) are
 displayed for the user to choose.</li>
 </ol>
+</div>
+<div id="help-how-this-app-works" class="section level2">
+<h2>Help: How this app works</h2>
+<p><strong>Purpose</strong><br />
+This tool helps validate segments predicted by a machine learning
+model.</p>
+<ul>
+<li>Each audio clip was predicted to belong to a class (e.g., a species
+or sound type).</li>
+<li>The reviewer listens and marks each prediction as Correct or
+Incorrect.</li>
+</ul>
+<p><strong>Under the hood</strong><br />
+- A <strong>logistic regression</strong> is fit using the validated
+clips to convert scores into probabilities.</p>
+<ul>
+<li><p>A <strong>calibration curve</strong> (score vs. probability) is
+plotted.</p></li>
+<li><p>You also get thresholds for 0.7, 0.8, and 0.9 probability of
+correctness.</p></li>
+<li><p>The <strong>Precision-Recall (ROC) Curve</strong> helps evaluate
+model performance across thresholds.</p></li>
+</ul>
 </div>
 <div id="literature" class="section level2">
 <h2>Literature</h2>

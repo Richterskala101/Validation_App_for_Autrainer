@@ -1,5 +1,6 @@
-# Validation Appllication for model predictions created with Autrainer models
+# Validation Aplication for model predictions created with Autrainer models
 ## R Scripts and Shiny App for manual validation of predictions from autrainer models
+
 This is work in progress. If you encounter any problems or can think of improvements, feel free to email me: dominik.arend@bio.uni-freiburg.de
 
 ## Theoretical Background
@@ -28,6 +29,24 @@ Then:
 2. Let users manually validate them.
 3. Use logistic regression to calibrate prediction scores into real-world probabilities.
 4. Precision thresholds (e.g., for 0.7, 0.8, 0.9 probability) are displayed for the user to choose.
+
+## Help: How this app works
+
+**Purpose**  
+This tool helps validate segments predicted by a machine learning model.
+
+- Each audio clip was predicted to belong to a class (e.g., a species or sound type).
+- The reviewer listens and marks each prediction as Correct or Incorrect.
+
+**Under the hood**  
+- A **logistic regression** is fit using the validated clips to convert scores into probabilities.
+
+- A **calibration curve** (score vs. probability) is plotted.
+
+- You also get thresholds for 0.7, 0.8, and 0.9 probability of correctness.
+
+- The **Precision-Recall (ROC) Curve** helps evaluate model performance across thresholds.
+
 
 ## Literature
 Wood, C.M., Kahl, S. Guidelines for appropriate use of BirdNET scores and other detector outputs. J Ornithol 165, 777–782 (2024). https://doi.org/10.1007/s10336-024-02144-5
