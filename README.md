@@ -30,10 +30,13 @@ Then:
 3. Use logistic regression to calibrate prediction scores into real-world probabilities.
 4. Precision thresholds (e.g., for 0.7, 0.8, 0.9 probability) are displayed for the user to choose.
 
-## Help: How this app works
+# Help: How this app works
 
 **Purpose**  
 This tool helps validate segments predicted by a machine learning model.
+Mainly for model prediction made with Autrainer. For Example:
+
+- 
 
 - Each audio clip was predicted to belong to a class (e.g., a species or sound type).
 - The reviewer listens and marks each prediction as Correct or Incorrect.
@@ -47,6 +50,66 @@ This tool helps validate segments predicted by a machine learning model.
 
 - The **Precision-Recall (ROC) Curve** helps evaluate model performance across thresholds.
 
+
+# Installation
+
+## Installation of R-Shiny app
+Download the R-Script "Segment_reviewer_app.R" for the segment reviewer app and the R-Scrpt "Segment_extraction" for streamlined extraction of segment from the github and store it on your machine.
+Open the R Scripts with R-Studio or to your liking. In R-Studio, press "Run" 
+
+## Prerequisites and File Setup
+
+Before launching the Shiny app, make sure your working directory includes the following:
+
+### 1. `exported_segments/` Directory
+
+This should contain subfolders named by class labels (e.g., species, sound types), with 3-second audio `.wav` clips. Example structure:
+
+```
+
+exported\_segments/
+├── Insecta/
+│   ├── forestrec1\_0.91.wav
+│   ├── forestrec5\_0.83.wav
+│   └── ...
+├── Geophony/
+│   ├── canyon1\_0.77.wav
+│   └── ...
+└── Anthropophony/
+├── roadnoise\_0.68.wav
+└── ...
+
+````
+
+- File names should include a score, typically appended as part of the name: `recordingID_score.wav` (e.g., `rec1_0.84.wav`).
+- Each file must be exactly the same duration (default = 3 seconds).
+- Audio files must be in `.wav` format.
+
+### 2. `validation_results.csv` (optional)
+
+If you’ve already started a validation session, this file will be updated when the app closes. You don’t need to create it beforehand.
+
+### 3. Required R Packages
+
+Make sure the following R packages are installed:
+
+```r
+install.packages(c(\"shiny\", \"tuneR\", \"seewave\", \"dplyr\", \"ggplot2\", \"pROC\"))
+```
+
+## Launching the App
+
+Once everything is set up, launch the app in R:
+
+```r
+shiny::runApp(\".\")  # If app.R and help.md are in the current folder
+```
+
+## Additional Notes
+
+* The app will automatically recognize available class subfolders.
+* Logistic regression calibration will begin displaying after 10 reviewed segments.
+* Logistic regression and ROC/PR curves are refreshed live as you label clips.
 
 ## Literature
 Wood, C.M., Kahl, S. Guidelines for appropriate use of BirdNET scores and other detector outputs. J Ornithol 165, 777–782 (2024). https://doi.org/10.1007/s10336-024-02144-5

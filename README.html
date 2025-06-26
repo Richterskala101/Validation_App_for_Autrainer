@@ -352,8 +352,8 @@ display: none;
 </div>
 
 
-<div id="validation-appllication-for-model-predictions-created-with-autrainer-models" class="section level1">
-<h1>Validation Appllication for model predictions created with Autrainer
+<div id="validation-aplication-for-model-predictions-created-with-autrainer-models" class="section level1">
+<h1>Validation Aplication for model predictions created with Autrainer
 models</h1>
 <div id="r-scripts-and-shiny-app-for-manual-validation-of-predictions-from-autrainer-models" class="section level2">
 <h2>R Scripts and Shiny App for manual validation of predictions from
@@ -429,6 +429,68 @@ plotted.</p></li>
 correctness.</p></li>
 <li><p>The <strong>Precision-Recall (ROC) Curve</strong> helps evaluate
 model performance across thresholds.</p></li>
+</ul>
+<p>Here’s a suggested <code>help.md</code> section you can place
+alongside your Shiny app file. This addition focuses specifically on
+<strong>file organization and prerequisites</strong> for running the app
+successfully:</p>
+</div>
+<div id="prerequisites-and-file-setup" class="section level2">
+<h2>Prerequisites and File Setup</h2>
+<p>Before launching the Shiny app, make sure your working directory
+includes the following:</p>
+<div id="exported_segments-directory" class="section level3">
+<h3>1. <code>exported_segments/</code> Directory</h3>
+<p>This should contain subfolders named by class labels (e.g., species,
+sound types), with 3-second audio <code>.wav</code> clips. Example
+structure:</p>
+<pre><code>
+exported\_segments/
+├── Insecta/
+│   ├── forestrec1\_0.91.wav
+│   ├── forestrec5\_0.83.wav
+│   └── ...
+├── Geophony/
+│   ├── canyon1\_0.77.wav
+│   └── ...
+└── Anthropophony/
+├── roadnoise\_0.68.wav
+└── ...
+</code></pre>
+<ul>
+<li>File names should include a score, typically appended as part of the
+name: <code>recordingID_score.wav</code> (e.g.,
+<code>rec1_0.84.wav</code>).</li>
+<li>Each file must be exactly the same duration (default = 3
+seconds).</li>
+<li>Audio files must be in <code>.wav</code> format.</li>
+</ul>
+</div>
+<div id="validation_results.csv-optional" class="section level3">
+<h3>2. <code>validation_results.csv</code> (optional)</h3>
+<p>If you’ve already started a validation session, this file will be
+updated when the app closes. You don’t need to create it beforehand.</p>
+</div>
+<div id="required-r-packages" class="section level3">
+<h3>3. Required R Packages</h3>
+<p>Make sure the following R packages are installed:</p>
+<pre class="r"><code>install.packages(c(\&quot;shiny\&quot;, \&quot;tuneR\&quot;, \&quot;seewave\&quot;, \&quot;dplyr\&quot;, \&quot;ggplot2\&quot;, \&quot;pROC\&quot;))</code></pre>
+</div>
+</div>
+<div id="launching-the-app" class="section level2">
+<h2>Launching the App</h2>
+<p>Once everything is set up, launch the app in R:</p>
+<pre class="r"><code>shiny::runApp(\&quot;.\&quot;)  # If app.R and help.md are in the current folder</code></pre>
+</div>
+<div id="additional-notes" class="section level2">
+<h2>Additional Notes</h2>
+<ul>
+<li>The app will automatically recognize available class
+subfolders.</li>
+<li>Logistic regression calibration will begin displaying after 10
+reviewed segments.</li>
+<li>Logistic regression and ROC/PR curves are refreshed live as you
+label clips.</li>
 </ul>
 </div>
 <div id="literature" class="section level2">
