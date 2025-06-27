@@ -101,9 +101,11 @@ server <- function(input, output, session) {
     spectro(wav, main = basename(current_file()), flim = c(0, 10))
   })
   
-  observe({
-    updateAudio(session, "audio", current_file())
+  output$audio_ui <- renderUI({
+    req(current_file())
+    tags$audio(src = current_file(), type = "audio/wav", controls = NA)
   })
+  
   
   output$logisticPlot <- renderPlot({
     val <- state$data
