@@ -6,9 +6,9 @@ library(ggplot2)
 library(pROC)
 
 # ==== Configuration ====
-segment_dir <- "exported_segments"  # Root folder containing class subfolders
+segment_dir <- "//myr/home/darend/Documents/Predictions_ABGS_BeSound_Sandra/Segments"  # Root folder containing class subfolders
 validation_file <- "validation_results.csv"  # Where to save the results
-segment_duration <- 3  # seconds
+segment_duration <- 10  # seconds
 
 # ==== Helper Functions ====
 list_classes <- function() {
@@ -64,8 +64,13 @@ server <- function(input, output, session) {
     state$files[state$index]
   })
   
-  observeEvent(input$correct, save_outcome(1))
-  observeEvent(input$incorrect, save_outcome(0))
+  observeEvent(input$correct, {
+    save_outcome(1)()
+  })
+  
+  observeEvent(input$incorrect, {
+    save_outcome(0)()
+  })
   observeEvent(input$skip, advance())
   observeEvent(input$prev, {
     state$index <- max(1, state$index - 1)
