@@ -71,16 +71,16 @@ This should contain subfolders named by class labels (e.g., species, sound types
 
 ```
 
-exported\_segments/
-├── Insecta/
-│   ├── forestrec1\_0.91.wav
-│   ├── forestrec5\_0.83.wav
+your_drive/segments/
+├── Arcyptera.fusca/
+│   ├── 20240721_095000_0.91.wav
+│   ├── 20240721_100000__0.83.wav
 │   └── ...
-├── Geophony/
-│   ├── canyon1\_0.77.wav
+├── Chorthippus.vagans.vagans/
+│   ├── 20240721_095000_0.77.wav
 │   └── ...
-└── Anthropophony/
-├── roadnoise\_0.68.wav
+└── Omocestus.viridulus/
+├── Phaneroptera.falcata/
 └── ...
 
 ````
@@ -98,7 +98,7 @@ If you’ve already started a validation session, this file will be updated when
 Make sure the following R packages are installed:
 
 ```r
-install.packages(c(\"shiny\", "\shinyFiles\", \"tuneR\", \"seewave\", \"dplyr\", \"ggplot2\"))
+install.packages(c(\"shiny\", \"shinyFiles\", \"tuneR\", \"seewave\", \"dplyr\", \"ggplot2\"))
 ```
 
 ## Launching the App
@@ -106,16 +106,16 @@ install.packages(c(\"shiny\", "\shinyFiles\", \"tuneR\", \"seewave\", \"dplyr\",
 Once everything is set up, launch the app in R:
 
 ```r
-shiny::runApp(\".\")  # If app.R and help.md are in the current folder
+shiny::runApp(\".\")  
 ```
 
 you should now see two "pages", selectable at the top of the window
 
 First, select the repository you have your segments in and the folder, where you want to save the csv with your "annotations".
 
-Secondly, start annotating by pressing: "..."
+Secondly, start annotating by pressing: "Load segment classes"
 
-![that how it should look like](Images_for_illustration/App_Picture.JPG)
+![thats how it should look like](Images_for_illustration/App_Picture.JPG)
 
 ## Additional Notes
 
