@@ -4,51 +4,61 @@ library(tuneR)
 library(seewave)
 library(dplyr)
 library(ggplot2)
-library(pROC)
-library(fs)
 
 # ==== UI ====
-ui <- navbarPage(
-  "Audio Segment Reviewer",
+ui <- fluidPage(
+  titlePanel("Segment Reviewer for Audio Classification"),
   
-  # --- Page 1: Directory Selection ---
-  tabPanel("Select Directory",
-           sidebarLayout(
-             sidebarPanel(
-               shinyDirButton("segment_dir_btn", "Choose Segment Directory", "Select segment folder"),
-               verbatimTextOutput("segment_dir_display"),
-               textInput("validation_file", "Validation File Name", value = "validation_results.csv"),
-               numericInput("segment_duration", "Segment Duration (seconds)", value = 5, min = 1),
-               actionButton("load_data", "Load Segment Classes")
-             ),
-             mainPanel(
-               helpText("Select the segment directory and input the file name for saving validation results.")
+  tabsetPanel(
+    id = "main_tabs",
+    
+    tabPanel("1. Setup",
+             sidebarLayout(
+               sidebarPanel(
+                 shinyDirButton("segment_dir_btn", "Choose Segment Directory", "Select segment folder"),
+                 verbatimTextOutput("segment_dir_display"),
+                 
+                 shinyDirButton("save_dir_btn", "Choose Save Directory", "Select where to save results"),
+                 verbatimTextOutput("save_dir_display"),
+                 
+                 textInput("validation_file", "Validation File Name", value = "validation_results.csv"),
+                 verbatimTextOutput("final_save_path"),
+                 br(),
+                 actionButton("proceed", "Go to Review Page", class = "btn-primary")
+               ),
+               mainPanel(
+                 helpText("Step 1: Choose the folder containing the audio segments.",
+                          "Then choose where the results should be saved and set a filename.")
+               )
              )
-           )
-  ),
-  
-  # --- Page 2: Segment Review ---
-  tabPanel("Review Segments",
-           sidebarLayout(
-             sidebarPanel(
-               uiOutput("class_ui"),
-               actionButton("correct", "Correct", class = "btn-success"),
-               actionButton("incorrect", "Incorrect", class = "btn-danger"),
-               actionButton("skip", "Skip"),
-               actionButton("prev", "Previous"),
-               br(), br(),
-               verbatimTextOutput("clip_info"),
-               tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
-               br(), br(),
-               helpText("After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
-                        "Thresholds are calculated for precision levels 0.7, 0.8, and 0.9."),
-               plotOutput("logisticPlot"),
-               tableOutput("thresholds")
-             ),
-             mainPanel(
-               plotOutput("spectrogram")
+    ),
+    
+    tabPanel("2. Review",
+             sidebarLayout(
+               sidebarPanel(
+                 actionButton("load_data", "Load Segment Classes"),
+                 uiOutput("class_ui"),
+                 numericInput("segment_duration", "Segment Duration (seconds)", value = 5, min = 1),
+                 actionButton("correct", "Correct", class = "btn-success"),
+                 actionButton("incorrect", "Incorrect", class = "btn-danger"),
+                 actionButton("skip", "Skip"),
+                 actionButton("prev", "Previous"),
+                 br(), br(),
+                 verbatimTextOutput("clip_info"),
+                 tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
+                 br(), br(),
+                 helpText("This app allows you to manually validate predicted segments from an audio classification model.",
+                          "After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
+                          "Thresholds are calculated for precision levels 0.7, 0.8, and 0.9."),
+                 plotOutput("logisticPlot"),
+                 tableOutput("thresholds")
+               ),
+               
+               mainPanel(
+                 plotOutput("spectrogram")
+               )
              )
-           )
+    )
   )
 )
 
@@ -57,7 +67,10 @@ server <- function(input, output, session) {
   # File system access
   volumes <- c(Home = fs::path_home(), "B:" = "B:/", "C:" = "C:/", "D:" = "D:/")
   shinyDirChoose(input, "segment_dir_btn", roots = volumes, session = session)
+  shinyDirChoose(input, "save_dir_btn", roots = volumes, session = session)
+  
   segment_dir <- reactiveVal(NULL)
+  save_dir <- reactiveVal(NULL)
   
   observeEvent(input$segment_dir_btn, {
     dir_path <- parseDirPath(volumes, input$segment_dir_btn)
@@ -66,8 +79,32 @@ server <- function(input, output, session) {
     }
   })
   
-  output$segment_dir_display <- renderPrint({
-    segment_dir()
+  observeEvent(input$save_dir_btn, {
+    dir_path <- parseDirPath(volumes, input$save_dir_btn)
+    if (length(dir_path) > 0 && dir.exists(dir_path)) {
+      save_dir(normalizePath(dir_path))
+    }
+  })
+  
+  output$segment_dir_display <- renderPrint({ segment_dir() })
+  output$save_dir_display <- renderPrint({ save_dir() })
+  
+  save_path <- reactive({
+    req(save_dir(), input$validation_file)
+    file_name <- input$validation_file
+    if (!grepl("\\.csv$", file_name, ignore.case = TRUE)) {
+      file_name <- paste0(file_name, ".csv")
+    }
+    file.path(save_dir(), file_name)
+  })
+  
+  output$final_save_path <- renderText({
+    req(save_path())
+    paste("Results will be saved to:", save_path())
+  })
+  
+  observeEvent(input$proceed, {
+    updateTabsetPanel(session, "main_tabs", selected = "2. Review")
   })
   
   # App state
@@ -125,6 +162,12 @@ server <- function(input, output, session) {
         outcome = outcome_val
       )
       state$data <- bind_rows(state$data, new_entry)
+      
+      # Save immediately
+      if (!is.null(save_path())) {
+        write.csv(state$data, save_path(), row.names = FALSE)
+      }
+      
       advance()
     }
   }
@@ -166,14 +209,13 @@ server <- function(input, output, session) {
     data.frame(`Target Probability` = p_vals, `Score Threshold` = round(thresholds, 3))
   })
   
-  # Save on exit
+  # Optional: save again on exit
   onStop(function() {
-    if (!is.null(input$validation_file)) {
-      write.csv(state$data, input$validation_file, row.names = FALSE)
+    if (!is.null(save_path())) {
+      write.csv(state$data, save_path(), row.names = FALSE)
     }
   })
 }
 
 # ==== LAUNCH ====
 shinyApp(ui, server)
-
