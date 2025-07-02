@@ -3,10 +3,10 @@ library(dplyr)
 library(fs)
 
 # === CONFIG ===
-input_csv <- "//myr/home/darend/Documents/Predictions_ABGS_BeSound_Sandra/results.csv"  # Your model's output
-audio_folder <- "//myr/home/darend/Documents/Predictions_ABGS_BeSound_Sandra/test"
-output_folder <- "//myr/home/darend/Documents/Predictions_ABGS_BeSound_Sandra/Segments"
-segment_length <- 10  # in seconds
+input_csv <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/results.csv"  # Your model's output
+audio_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model"
+output_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments"
+segment_length <- 5  # in seconds
 n_per_class <- 30    # number of segments to export per class
 
 # === READ PREDICTIONS ===
@@ -14,8 +14,11 @@ preds <- read.csv(input_csv)
 preds <- preds %>%
   select(-output) |> 
   mutate(label = gsub("\\[|\\]|'", "", prediction),
+         label = gsub(" ", ".", label),
          start = as.numeric(sub("^(\\d+\\.\\d+)-.*", "\\1", offset)),
-         end = as.numeric(sub(".*-(\\d+\\.\\d+)$", "\\1", offset)))
+         end = as.numeric(sub(".*-(\\d+\\.\\d+)$", "\\1", offset))) |> 
+  filter(prediction != "[]") |> 
+  na.omit()
   
   
 
@@ -66,7 +69,7 @@ for (i in seq_len(nrow(preds))) {
   # Calculate start and end in samples
   samp_rate <- wav@samp.rate
   start_sample <- as.integer(row$start * samp_rate)
-  end_sample <- start_sample + segment_length * samp_rate - 1
+  end_sample <- as.integer(row$end * samp_rate)
   
   if (end_sample > length(wav@left)) next
   
@@ -83,6 +86,6 @@ for (i in seq_len(nrow(preds))) {
   score <- max(as.numeric(row[, valid_labels]), na.rm = TRUE)
   
   # Create output filename
-  outfile <- sprintf("%s_%.2f.wav", tools::file_path_sans_ext(row$filename), score)
+  outfile <- sprintf("%s_%.2f.wav", tools::file_path_sans_ext(basename(row$filename)), score)
   writeWave(segment, file.path(class_dir, outfile))
 }

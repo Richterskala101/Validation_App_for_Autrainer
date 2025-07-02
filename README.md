@@ -105,6 +105,14 @@ Once everything is set up, launch the app in R:
 shiny::runApp(\".\")  # If app.R and help.md are in the current folder
 ```
 
+you should now see two "pages", selectable at the top of the window
+
+First, select the repository
+
+Secondly, start annotating
+
+![that how it should look like](Images_for_illustration/App_Picture.JPG)
+
 ## Additional Notes
 
 * The app will automatically recognize available class subfolders.

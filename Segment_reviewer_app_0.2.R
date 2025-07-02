@@ -1,30 +1,24 @@
 library(shiny)
+library(shinyFiles)
 library(tuneR)
 library(seewave)
 library(dplyr)
 library(ggplot2)
 library(pROC)
-
-# ==== Configuration ====
-segment_dir <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments"  # Root folder containing class subfolders
-validation_file <- "validation_results.csv"  # Where to save the results
-segment_duration <- 5  # seconds
-
-# ==== Helper Functions ====
-list_classes <- function() {
-  list.dirs(segment_dir, full.names = FALSE, recursive = FALSE)
-}
-
-list_files_in_class <- function(class) {
-  list.files(file.path(segment_dir, class), pattern = "\\.wav$", full.names = TRUE)
-}
+library(fs)
 
 # ==== UI ====
 ui <- fluidPage(
   titlePanel("Segment Reviewer for Audio Classification"),
+  
   sidebarLayout(
     sidebarPanel(
-      selectInput("class", "Choose Class:", choices = list_classes()),
+      shinyDirButton("segment_dir_btn", "Choose Segment Directory", "Select segment folder"),
+      verbatimTextOutput("segment_dir_display"),
+      textInput("validation_file", "Validation File Name", value = "validation_results.csv"),
+      numericInput("segment_duration", "Segment Duration (seconds)", value = 5, min = 1),
+      actionButton("load_data", "Load Segment Classes"),
+      uiOutput("class_ui"),
       actionButton("correct", "Correct", class = "btn-success"),
       actionButton("incorrect", "Incorrect", class = "btn-danger"),
       actionButton("skip", "Skip"),
@@ -33,29 +27,65 @@ ui <- fluidPage(
       verbatimTextOutput("clip_info"),
       tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
       br(), br(),
-      helpText("This app allows you to manually validate predicted segments from an audio classification model."
-               ,"After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities."
-               ,"Thresholds are calculated for precision levels 0.7, 0.8, and 0.9. A precision-recall curve shows performance over score thresholds."),
+      helpText("This app allows you to manually validate predicted segments from an audio classification model.",
+               "After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
+               "Thresholds are calculated for precision levels 0.7, 0.8, and 0.9."),
       plotOutput("logisticPlot"),
       tableOutput("thresholds"),
       plotOutput("prPlot")
     ),
+    
     mainPanel(
       plotOutput("spectrogram")
     )
   )
 )
 
-# ==== Server ====
+# ==== SERVER ====
 server <- function(input, output, session) {
+  # File system access
+  volumes <- c(Home = fs::path_home(), "B:" = "B:/", "C:" = "C:/", "D:" = "D:/")
+  shinyDirChoose(input, "segment_dir_btn", roots = volumes, session = session)
+  segment_dir <- reactiveVal(NULL)
+  
+  observeEvent(input$segment_dir_btn, {
+    dir_path <- parseDirPath(volumes, input$segment_dir_btn)
+    if (length(dir_path) > 0 && dir.exists(dir_path)) {
+      segment_dir(normalizePath(dir_path))
+    }
+  })
+  
+  output$segment_dir_display <- renderPrint({
+    segment_dir()
+  })
+  
+  # App state
   state <- reactiveValues(
     files = NULL,
     index = 1,
-    data = data.frame(file = character(), score = numeric(), class = character(), outcome = integer())
+    data = data.frame(file = character(), score = numeric(), class = character(), outcome = integer()),
+    classes = character()
   )
   
+  # Load classes
+  observeEvent(input$load_data, {
+    req(segment_dir())
+    classes <- list.dirs(segment_dir(), full.names = FALSE, recursive = FALSE)
+    state$classes <- classes
+    updateSelectInput(session, "class", choices = classes)
+  })
+  
+  # Class selector
+  output$class_ui <- renderUI({
+    req(state$classes)
+    selectInput("class", "Choose Class:", choices = state$classes)
+  })
+  
+  # When class changes, list files
   observeEvent(input$class, {
-    state$files <- list_files_in_class(input$class)
+    req(segment_dir())
+    class_path <- file.path(segment_dir(), input$class)
+    state$files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
     state$index <- 1
   })
   
@@ -64,13 +94,9 @@ server <- function(input, output, session) {
     state$files[state$index]
   })
   
-  observeEvent(input$correct, {
-    save_outcome(1)()
-  })
-  
-  observeEvent(input$incorrect, {
-    save_outcome(0)()
-  })
+  # Controls
+  observeEvent(input$correct, { save_outcome(1)() })
+  observeEvent(input$incorrect, { save_outcome(0)() })
   observeEvent(input$skip, advance())
   observeEvent(input$prev, {
     state$index <- max(1, state$index - 1)
@@ -106,12 +132,6 @@ server <- function(input, output, session) {
     spectro(wav, main = basename(current_file()), flim = c(0, 10))
   })
   
-  output$audio_ui <- renderUI({
-    req(current_file())
-    tags$audio(src = current_file(), type = "audio/wav", controls = NA)
-  })
-  
-  
   output$logisticPlot <- renderPlot({
     val <- state$data
     if (sum(!is.na(val$outcome)) < 10) return(NULL)
@@ -139,16 +159,22 @@ server <- function(input, output, session) {
     val <- state$data
     if (nrow(val) < 10) return(NULL)
     pr <- roc(val$outcome, val$score, quiet = TRUE)
-    pr_data <- data.frame(thresholds = pr$thresholds, sensitivities = pr$sensitivities, specificities = pr$specificities)
+    pr_data <- data.frame(thresholds = pr$thresholds,
+                          sensitivities = pr$sensitivities,
+                          specificities = pr$specificities)
     ggplot(pr_data, aes(x = 1 - specificities, y = sensitivities)) +
       geom_line(color = "darkred") +
-      labs(title = "Precision-Recall (ROC) Curve", x = "False Positive Rate", y = "True Positive Rate") +
+      labs(title = "ROC Curve", x = "False Positive Rate", y = "True Positive Rate") +
       theme_minimal()
   })
   
+  # Save on exit
   onStop(function() {
-    write.csv(state$data, validation_file, row.names = FALSE)
+    if (!is.null(input$validation_file)) {
+      write.csv(state$data, input$validation_file, row.names = FALSE)
+    }
   })
 }
 
+# ==== LAUNCH ====
 shinyApp(ui, server)
