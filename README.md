@@ -3,7 +3,7 @@
 
 This is work in progress. If you encounter any problems or can think of improvements, feel free to email me: dominik.arend@bio.uni-freiburg.de
 Originally, this was developed for validating predictions for the papers Arend at al. 2026 and Vandendriessche et al. 2026. originating the Project HearTheSpecies (https://www.biodiversity-exploratories.de/en/projects/using-computer-audition-to-understand-the-drivers-of-soundscape-composition-and-to-predict-parasitation-rates-based-on-vocalisations-of-bird-species/) of the Biodiversity Exploratories.
-If use find this helpfull to validate data for your own projects or draw heavy on the code please give a reference to this.
+If you find this helpful to validate data for your own projects or draw heavy on the code please give a reference to this.
 
 ## Theoretical Background
 Machine learning classifiers, including sound recognition models like BirdNET, InsectNet or custom Bio/Geo/Anthropophony classifiers, typically produce confidence scores between 0 and 1. While these resemble probabilities, they are actually unitless values resulting from a transformation (often a sigmoid) of the model's internal logits. These scores are not directly interpretable as probabilities because their calibration depends on the data distribution, the model's architecture, and the class it predicts. For instance, a score of 0.8 might indicate high confidence for one species but a much lower actual correctness probability for another.
