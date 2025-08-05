@@ -4,10 +4,10 @@ library(fs)
 library(stringr)
 
 # === CONFIG ===
-input_csv <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/results.csv"  # Your model's output
-audio_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model"
-output_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments"
-segment_length <- 5   # seconds
+input_csv <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/AEG20_RP/results.csv"  # Your model's output
+audio_folder <- "B:/2023/2024/HearTheSpecies_Grasslands/AEG20/AEG20_RP"
+output_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments2"
+segment_length <- 4   # seconds
 n_per_class    <- 30  # max segments per species
 
 # === READ & PREP DATA ===

@@ -51,7 +51,6 @@ Mainly for model prediction made with Autrainer (https://autrainer.github.io/aut
 
 - You also get thresholds for 0.7, 0.8, and 0.9 probability of correctness.
 
-- The **Precision-Recall (ROC) Curve** helps evaluate model performance across thresholds.
 
 
 # Installation
@@ -86,7 +85,7 @@ your_drive/segments/
 ````
 
 - File names should include a score, typically appended as part of the name: `recordingID_score.wav` (e.g., `rec1_0.84.wav`).
-- Each file must be exactly the same duration (default = 3 seconds).
+- Each file must be exactly the same duration (default = 4 seconds). Other segment durations than the default work too.
 - Audio files must be in `.wav` format.
 
 ### 2. `validation_results.csv` (optional)
@@ -109,9 +108,10 @@ Once everything is set up, launch the app in R:
 shiny::runApp(\".\")  
 ```
 
-you should now see two "pages", selectable at the top of the window
+you should now see two "pages" or tabs, selectable at the top of the window
 
 First, select the repository you have your segments in and the folder, where you want to save the csv with your "annotations".
+![thats how it should look like](Images_for_illustration/Choose_Directory.jpg)
 
 Secondly, start annotating by pressing: "Load segment classes"
 

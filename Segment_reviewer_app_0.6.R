@@ -45,7 +45,7 @@ ui <- fluidPage(
                  actionButton("prev", "Previous"),
                  br(), br(),
                  verbatimTextOutput("clip_info"),
-                 tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
+                 uiOutput("audio_ui"),
                  br(), br(),
                  helpText("This app allows you to manually validate predicted segments from an audio classification model.",
                           "After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
@@ -55,7 +55,8 @@ ui <- fluidPage(
                ),
                
                mainPanel(
-                 plotOutput("spectrogram")
+                 plotOutput("spectrogram", brush = brushOpts(id = "spec_brush", resetOnNew = TRUE),
+                            dblclick = "spec_dblclick")  # Double-click to reset zoom
                )
              )
     )
@@ -64,7 +65,6 @@ ui <- fluidPage(
 
 # ==== SERVER ====
 server <- function(input, output, session) {
-  # File system access
   volumes <- c(Home = fs::path_home(), "B:" = "B:/", "C:" = "C:/", "D:" = "D:/")
   shinyDirChoose(input, "segment_dir_btn", roots = volumes, session = session)
   shinyDirChoose(input, "save_dir_btn", roots = volumes, session = session)
@@ -107,12 +107,13 @@ server <- function(input, output, session) {
     updateTabsetPanel(session, "main_tabs", selected = "2. Review")
   })
   
-  # App state
   state <- reactiveValues(
     files = NULL,
     index = 1,
     data = data.frame(file = character(), score = numeric(), class = character(), outcome = integer()),
-    classes = character()
+    classes = character(),
+    zoom_time = NULL,
+    zoom_freq = NULL
   )
   
   # Load classes
@@ -129,11 +130,28 @@ server <- function(input, output, session) {
     selectInput("class", "Choose Class:", choices = state$classes)
   })
   
-  # When class changes, list files
+  # When class changes, list and copy files into www
   observeEvent(input$class, {
     req(segment_dir())
-    class_path <- file.path(segment_dir(), input$class)
-    state$files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
+    
+    class_name <- input$class
+    class_path <- file.path(segment_dir(), class_name)
+    www_class_path <- file.path("www", "segments", class_name)
+    
+    if (!dir.exists(www_class_path)) {
+      dir.create(www_class_path, recursive = TRUE)
+    }
+    
+    files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
+    
+    for (f in files) {
+      dest <- file.path(www_class_path, basename(f))
+      if (!file.exists(dest)) {
+        file.copy(f, dest)
+      }
+    }
+    
+    state$files <- file.path("www", "segments", class_name, basename(files))
     state$index <- 1
   })
   
@@ -142,7 +160,6 @@ server <- function(input, output, session) {
     state$files[state$index]
   })
   
-  # Controls
   observeEvent(input$correct, { save_outcome(1)() })
   observeEvent(input$incorrect, { save_outcome(0)() })
   observeEvent(input$skip, advance())
@@ -163,7 +180,6 @@ server <- function(input, output, session) {
       )
       state$data <- bind_rows(state$data, new_entry)
       
-      # Save immediately
       if (!is.null(save_path())) {
         write.csv(state$data, save_path(), row.names = FALSE)
       }
@@ -173,7 +189,11 @@ server <- function(input, output, session) {
   }
   
   advance <- function() {
-    state$index <- min(state$index + 1, length(state$files))
+    if (state$index < length(state$files)) {
+      state$index <- state$index + 1
+    } else {
+      showNotification("You have reached the last clip.", type = "message")
+    }
   }
   
   output$clip_info <- renderPrint({
@@ -181,9 +201,41 @@ server <- function(input, output, session) {
           "[", state$index, "/", length(state$files), "]")
   })
   
+  output$audio_ui <- renderUI({
+    req(current_file())
+    rel_path <- sub("^www/", "", current_file())
+    tags$audio(id = "audio", src = rel_path, type = "audio/wav", controls = NA)
+  })
+  
+  # Zoom logic
+  observeEvent(input$spec_brush, {
+    brush <- input$spec_brush
+    if (!is.null(brush)) {
+      state$zoom_time <- c(brush$xmin, brush$xmax)
+      state$zoom_freq <- c(brush$ymin, brush$ymax)
+    }
+  })
+  
+  observeEvent(input$spec_dblclick, {
+    state$zoom_time <- NULL
+    state$zoom_freq <- NULL
+  })
+  
   output$spectrogram <- renderPlot({
     wav <- readWave(current_file())
-    spectro(wav, main = basename(current_file()), flim = c(0, 10))
+    spectro(
+      wav,
+      wl = 1024,
+      ovlp = 50,
+      palette = heat.colors,
+      correction = "amplitude",
+      contrast = 0.53,
+      dB = "max0",
+      dynrange = 64,
+      tlim = state$zoom_time,
+      flim = state$zoom_freq,
+      main = basename(current_file())
+    )
   })
   
   output$logisticPlot <- renderPlot({
@@ -209,7 +261,6 @@ server <- function(input, output, session) {
     data.frame(`Target Probability` = p_vals, `Score Threshold` = round(thresholds, 3))
   })
   
-  # Optional: save again on exit
   onStop(function() {
     if (!is.null(save_path())) {
       write.csv(state$data, save_path(), row.names = FALSE)

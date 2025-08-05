@@ -45,11 +45,24 @@ ui <- fluidPage(
                  actionButton("prev", "Previous"),
                  br(), br(),
                  verbatimTextOutput("clip_info"),
-                 tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
+                 uiOutput("audio_ui"),
                  br(), br(),
+                 
+                 # === Spectrogram settings ===
+                 hr(),
+                 h4("Spectrogram Settings"),
+                 numericInput("spec_fmin", "Min Frequency (kHz)", value = 0),
+                 numericInput("spec_fmax", "Max Frequency (kHz)", value = 10),
+                 numericInput("spec_wl", "Window Length (samples)", value = 512),
+                 checkboxInput("spec_dB_toggle", "Apply dB scale (max0)?", value = TRUE),
+                 selectInput("spec_palette", "Color Palette",
+                             choices = c("gray.colors", "heat.colors", "topo.colors", "cm.colors", "terrain.colors"),
+                             selected = "gray.colors"),
+                 
                  helpText("This app allows you to manually validate predicted segments from an audio classification model.",
                           "After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
                           "Thresholds are calculated for precision levels 0.7, 0.8, and 0.9."),
+                 
                  plotOutput("logisticPlot"),
                  tableOutput("thresholds")
                ),
@@ -64,7 +77,6 @@ ui <- fluidPage(
 
 # ==== SERVER ====
 server <- function(input, output, session) {
-  # File system access
   volumes <- c(Home = fs::path_home(), "B:" = "B:/", "C:" = "C:/", "D:" = "D:/")
   shinyDirChoose(input, "segment_dir_btn", roots = volumes, session = session)
   shinyDirChoose(input, "save_dir_btn", roots = volumes, session = session)
@@ -107,7 +119,6 @@ server <- function(input, output, session) {
     updateTabsetPanel(session, "main_tabs", selected = "2. Review")
   })
   
-  # App state
   state <- reactiveValues(
     files = NULL,
     index = 1,
@@ -129,11 +140,27 @@ server <- function(input, output, session) {
     selectInput("class", "Choose Class:", choices = state$classes)
   })
   
-  # When class changes, list files
   observeEvent(input$class, {
     req(segment_dir())
-    class_path <- file.path(segment_dir(), input$class)
-    state$files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
+    
+    class_name <- input$class
+    class_path <- file.path(segment_dir(), class_name)
+    www_class_path <- file.path("www", "segments", class_name)
+    
+    if (!dir.exists(www_class_path)) {
+      dir.create(www_class_path, recursive = TRUE)
+    }
+    
+    files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
+    
+    for (f in files) {
+      dest <- file.path(www_class_path, basename(f))
+      if (!file.exists(dest)) {
+        file.copy(f, dest)
+      }
+    }
+    
+    state$files <- file.path("www", "segments", class_name, basename(files))
     state$index <- 1
   })
   
@@ -142,7 +169,6 @@ server <- function(input, output, session) {
     state$files[state$index]
   })
   
-  # Controls
   observeEvent(input$correct, { save_outcome(1)() })
   observeEvent(input$incorrect, { save_outcome(0)() })
   observeEvent(input$skip, advance())
@@ -163,7 +189,6 @@ server <- function(input, output, session) {
       )
       state$data <- bind_rows(state$data, new_entry)
       
-      # Save immediately
       if (!is.null(save_path())) {
         write.csv(state$data, save_path(), row.names = FALSE)
       }
@@ -173,7 +198,11 @@ server <- function(input, output, session) {
   }
   
   advance <- function() {
-    state$index <- min(state$index + 1, length(state$files))
+    if (state$index < length(state$files)) {
+      state$index <- state$index + 1
+    } else {
+      showNotification("You have reached the last clip.", type = "message")
+    }
   }
   
   output$clip_info <- renderPrint({
@@ -181,9 +210,27 @@ server <- function(input, output, session) {
           "[", state$index, "/", length(state$files), "]")
   })
   
+  output$audio_ui <- renderUI({
+    req(current_file())
+    rel_path <- sub("^www/", "", current_file())
+    tags$audio(id = "audio", src = rel_path, type = "audio/wav", controls = NA)
+  })
+  
   output$spectrogram <- renderPlot({
+    req(current_file())
     wav <- readWave(current_file())
-    spectro(wav, main = basename(current_file()), flim = c(0, 10))
+    
+    flim <- c(input$spec_fmin, input$spec_fmax)
+    wl <- input$spec_wl
+    dB_opt <- if (input$spec_dB_toggle) "max0" else NULL
+    pal_fun <- match.fun(input$spec_palette)
+    
+    spectro(wav,
+            flim = flim,
+            wl = wl,
+            dB = dB_opt,
+            palette = pal_fun,
+            main = basename(current_file()))
   })
   
   output$logisticPlot <- renderPlot({
@@ -209,7 +256,6 @@ server <- function(input, output, session) {
     data.frame(`Target Probability` = p_vals, `Score Threshold` = round(thresholds, 3))
   })
   
-  # Optional: save again on exit
   onStop(function() {
     if (!is.null(save_path())) {
       write.csv(state$data, save_path(), row.names = FALSE)
