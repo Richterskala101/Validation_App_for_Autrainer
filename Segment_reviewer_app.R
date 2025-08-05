@@ -1,61 +1,162 @@
 library(shiny)
+library(shinyFiles)
 library(tuneR)
 library(seewave)
 library(dplyr)
 library(ggplot2)
-library(pROC)
-
-# ==== Configuration ====
-segment_dir <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments"  # Root folder containing class subfolders
-validation_file <- "validation_results.csv"  # Where to save the results
-segment_duration <- 5  # seconds
-
-# ==== Helper Functions ====
-list_classes <- function() {
-  list.dirs(segment_dir, full.names = FALSE, recursive = FALSE)
-}
-
-list_files_in_class <- function(class) {
-  list.files(file.path(segment_dir, class), pattern = "\\.wav$", full.names = TRUE)
-}
 
 # ==== UI ====
 ui <- fluidPage(
   titlePanel("Segment Reviewer for Audio Classification"),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput("class", "Choose Class:", choices = list_classes()),
-      actionButton("correct", "Correct", class = "btn-success"),
-      actionButton("incorrect", "Incorrect", class = "btn-danger"),
-      actionButton("skip", "Skip"),
-      actionButton("prev", "Previous"),
-      br(), br(),
-      verbatimTextOutput("clip_info"),
-      tags$audio(id = "audio", src = "", type = "audio/wav", controls = NA),
-      br(), br(),
-      helpText("This app allows you to manually validate predicted segments from an audio classification model."
-               ,"After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities."
-               ,"Thresholds are calculated for precision levels 0.7, 0.8, and 0.9. A precision-recall curve shows performance over score thresholds."),
-      plotOutput("logisticPlot"),
-      tableOutput("thresholds"),
-      plotOutput("prPlot")
+  
+  tabsetPanel(
+    id = "main_tabs",
+    
+    tabPanel("1. Setup",
+             sidebarLayout(
+               sidebarPanel(
+                 shinyDirButton("segment_dir_btn", "Choose Segment Directory", "Select segment folder"),
+                 verbatimTextOutput("segment_dir_display"),
+                 
+                 shinyDirButton("save_dir_btn", "Choose Save Directory", "Select where to save results"),
+                 verbatimTextOutput("save_dir_display"),
+                 
+                 textInput("validation_file", "Validation File Name", value = "validation_results.csv"),
+                 verbatimTextOutput("final_save_path"),
+                 br(),
+                 actionButton("proceed", "Go to Review Page", class = "btn-primary")
+               ),
+               mainPanel(
+                 helpText("Step 1: Choose the folder containing the audio segments.",
+                          "Then choose where the results should be saved and set a filename.")
+               )
+             )
     ),
-    mainPanel(
-      plotOutput("spectrogram")
+    
+    tabPanel("2. Review",
+             sidebarLayout(
+               sidebarPanel(
+                 actionButton("load_data", "Load Segment Classes"),
+                 uiOutput("class_ui"),
+                 numericInput("segment_duration", "Segment Duration (seconds)", value = 5, min = 1),
+                 actionButton("correct", "Correct", class = "btn-success"),
+                 actionButton("incorrect", "Incorrect", class = "btn-danger"),
+                 actionButton("skip", "Skip"),
+                 actionButton("prev", "Previous"),
+                 br(), br(),
+                 verbatimTextOutput("clip_info"),
+                 uiOutput("audio_ui"),
+                 br(), br(),
+                 helpText("This app allows you to manually validate predicted segments from an audio classification model.",
+                          "After enough annotations, a logistic regression is fitted to calibrate model scores into probabilities.",
+                          "Thresholds are calculated for precision levels 0.7, 0.8, and 0.9."),
+                 plotOutput("logisticPlot"),
+                 downloadButton("downloadPlot", "Download Logistic Plot"),
+                 tableOutput("thresholds")
+               ),
+               
+               mainPanel(
+                 plotOutput("spectrogram", brush = brushOpts(id = "spec_brush", resetOnNew = TRUE),
+                            dblclick = "spec_dblclick"),  # Double-click to reset zoom
+                 br(),
+                 HTML("<p><strong>Zoom Instructions:</strong><br>
+                       Click and drag on the spectrogram to zoom into a region.<br>
+                       Double-click anywhere on the spectrogram to reset the zoom.</p>")
+               )
+             )
     )
   )
 )
 
-# ==== Server ====
+# ==== SERVER ====
 server <- function(input, output, session) {
+  volumes <- c(Home = fs::path_home(), "B:" = "B:/", "C:" = "C:/", "D:" = "D:/")
+  shinyDirChoose(input, "segment_dir_btn", roots = volumes, session = session)
+  shinyDirChoose(input, "save_dir_btn", roots = volumes, session = session)
+  
+  segment_dir <- reactiveVal(NULL)
+  save_dir <- reactiveVal(NULL)
+  
+  observeEvent(input$segment_dir_btn, {
+    dir_path <- parseDirPath(volumes, input$segment_dir_btn)
+    if (length(dir_path) > 0 && dir.exists(dir_path)) {
+      segment_dir(normalizePath(dir_path))
+    }
+  })
+  
+  observeEvent(input$save_dir_btn, {
+    dir_path <- parseDirPath(volumes, input$save_dir_btn)
+    if (length(dir_path) > 0 && dir.exists(dir_path)) {
+      save_dir(normalizePath(dir_path))
+    }
+  })
+  
+  output$segment_dir_display <- renderPrint({ segment_dir() })
+  output$save_dir_display <- renderPrint({ save_dir() })
+  
+  save_path <- reactive({
+    req(save_dir(), input$validation_file)
+    file_name <- input$validation_file
+    if (!grepl("\\.csv$", file_name, ignore.case = TRUE)) {
+      file_name <- paste0(file_name, ".csv")
+    }
+    file.path(save_dir(), file_name)
+  })
+  
+  output$final_save_path <- renderText({
+    req(save_path())
+    paste("Results will be saved to:", save_path())
+  })
+  
+  observeEvent(input$proceed, {
+    updateTabsetPanel(session, "main_tabs", selected = "2. Review")
+  })
+  
   state <- reactiveValues(
     files = NULL,
     index = 1,
-    data = data.frame(file = character(), score = numeric(), class = character(), outcome = integer())
+    data = data.frame(file = character(), score = numeric(), class = character(), outcome = integer()),
+    classes = character(),
+    zoom_time = NULL,
+    zoom_freq = NULL
   )
   
+  # Load classes
+  observeEvent(input$load_data, {
+    req(segment_dir())
+    classes <- list.dirs(segment_dir(), full.names = FALSE, recursive = FALSE)
+    state$classes <- classes
+    updateSelectInput(session, "class", choices = classes)
+  })
+  
+  # Class selector
+  output$class_ui <- renderUI({
+    req(state$classes)
+    selectInput("class", "Choose Class:", choices = state$classes)
+  })
+  
+  # When class changes, list and copy files into www
   observeEvent(input$class, {
-    state$files <- list_files_in_class(input$class)
+    req(segment_dir())
+    
+    class_name <- input$class
+    class_path <- file.path(segment_dir(), class_name)
+    www_class_path <- file.path("www", "segments", class_name)
+    
+    if (!dir.exists(www_class_path)) {
+      dir.create(www_class_path, recursive = TRUE)
+    }
+    
+    files <- list.files(class_path, pattern = "\\.wav$", full.names = TRUE)
+    
+    for (f in files) {
+      dest <- file.path(www_class_path, basename(f))
+      if (!file.exists(dest)) {
+        file.copy(f, dest)
+      }
+    }
+    
+    state$files <- file.path("www", "segments", class_name, basename(files))
     state$index <- 1
   })
   
@@ -64,13 +165,8 @@ server <- function(input, output, session) {
     state$files[state$index]
   })
   
-  observeEvent(input$correct, {
-    save_outcome(1)()
-  })
-  
-  observeEvent(input$incorrect, {
-    save_outcome(0)()
-  })
+  observeEvent(input$correct, { save_outcome(1)() })
+  observeEvent(input$incorrect, { save_outcome(0)() })
   observeEvent(input$skip, advance())
   observeEvent(input$prev, {
     state$index <- max(1, state$index - 1)
@@ -88,12 +184,21 @@ server <- function(input, output, session) {
         outcome = outcome_val
       )
       state$data <- bind_rows(state$data, new_entry)
+      
+      if (!is.null(save_path())) {
+        write.csv(state$data, save_path(), row.names = FALSE)
+      }
+      
       advance()
     }
   }
   
   advance <- function() {
-    state$index <- min(state$index + 1, length(state$files))
+    if (state$index < length(state$files)) {
+      state$index <- state$index + 1
+    } else {
+      showNotification("You have reached the last clip.", type = "message")
+    }
   }
   
   output$clip_info <- renderPrint({
@@ -101,33 +206,101 @@ server <- function(input, output, session) {
           "[", state$index, "/", length(state$files), "]")
   })
   
-  output$spectrogram <- renderPlot({
-    wav <- readWave(current_file())
-    spectro(wav, main = basename(current_file()), flim = c(0, 10))
-  })
-  
   output$audio_ui <- renderUI({
     req(current_file())
-    tags$audio(src = current_file(), type = "audio/wav", controls = NA)
+    rel_path <- sub("^www/", "", current_file())
+    tags$audio(id = "audio", src = rel_path, type = "audio/wav", controls = NA)
   })
   
+  # Zoom logic
+  observeEvent(input$spec_brush, {
+    brush <- input$spec_brush
+    if (!is.null(brush)) {
+      state$zoom_time <- c(brush$xmin, brush$xmax)
+      state$zoom_freq <- c(brush$ymin, brush$ymax)
+    }
+  })
+  
+  observeEvent(input$spec_dblclick, {
+    state$zoom_time <- NULL
+    state$zoom_freq <- NULL
+  })
+  
+  output$spectrogram <- renderPlot({
+    wav <- readWave(current_file())
+    spectro(
+      wav,
+      wl = 512,
+      palette = heat.colors,
+      contrast = 0.53,
+      dB = "A",
+      dynrange = 64,
+      tlim = state$zoom_time,
+      flim = state$zoom_freq,
+      main = basename(current_file())
+    )
+  })
   
   output$logisticPlot <- renderPlot({
     val <- state$data
-    if (sum(!is.na(val$outcome)) < 10) return(NULL)
-    model <- glm(outcome ~ score, family = "binomial", data = val, na.action = na.omit)
+    req(input$class)  # Ensure class is selected
+    class_val <- input$class
+    val_class <- val[val$class == class_val, ]
+    
+    if (nrow(val_class) < 10) return(NULL)
+    
+    model <- glm(outcome ~ score, family = "binomial", data = val_class, na.action = na.omit)
     scores <- seq(0, 1, length.out = 100)
     probs <- predict(model, newdata = data.frame(score = scores), type = "response")
+    
     ggplot(data.frame(score = scores, prob = probs), aes(x = score, y = prob)) +
       geom_line(color = "blue") +
-      labs(title = "Logistic Regression Calibration", x = "Score", y = "Probability Correct") +
+      labs(title = paste("Logistic Regression Calibration -", class_val),
+           x = "Score", y = "Probability Correct") +
       geom_hline(yintercept = c(0.7, 0.8, 0.9), linetype = "dashed", color = "grey")
   })
+  
+  output$downloadPlot <- downloadHandler(
+    filename = function() {
+      paste0("logistic_plot_", input$class, ".png")
+    },
+    content = function(file) {
+      val <- state$data
+      req(input$class)
+      class_val <- input$class
+      val_class <- val[val$class == class_val, ]
+      
+      if (nrow(val_class) < 10) return(NULL)
+      
+      model <- glm(outcome ~ score, family = "binomial", data = val_class, na.action = na.omit)
+      scores <- seq(0, 1, length.out = 100)
+      probs <- predict(model, newdata = data.frame(score = scores), type = "response")
+      
+      p <- ggplot(data.frame(score = scores, prob = probs), aes(x = score, y = prob)) +
+        geom_line(color = "blue") +
+        labs(title = paste("Logistic Regression Calibration -", class_val),
+             x = "Score", y = "Probability Correct") +
+        geom_hline(yintercept = c(0.7, 0.8, 0.9), linetype = "dashed", color = "grey")
+      
+      ggsave(file, plot = p, device = "png", width = 7, height = 5)
+    }
+  )
   
   output$thresholds <- renderTable({
     val <- state$data
     if (sum(!is.na(val$outcome)) < 10) return(NULL)
-    model <- glm(outcome ~ score, family = "binomial", data = val, na.action = na.omit)
+    class_val <- input$class
+    val_class <- val[val$class == class_val, ]
+    
+    if (nrow(val_class) < 10) return(NULL)
+    
+    class_val <- input$class
+    val_class <- val[val$class == class_val, ]
+    
+    if (nrow(val_class) < 10) return(NULL)
+    
+    model <- glm(outcome ~ score, family = "binomial", data = val_class, na.action = na.omit)
+    
     p_vals <- c(0.7, 0.8, 0.9)
     thresholds <- sapply(p_vals, function(p) {
       (log(p / (1 - p)) - coef(model)[1]) / coef(model)[2]
@@ -135,20 +308,12 @@ server <- function(input, output, session) {
     data.frame(`Target Probability` = p_vals, `Score Threshold` = round(thresholds, 3))
   })
   
-  output$prPlot <- renderPlot({
-    val <- state$data
-    if (nrow(val) < 10) return(NULL)
-    pr <- roc(val$outcome, val$score, quiet = TRUE)
-    pr_data <- data.frame(thresholds = pr$thresholds, sensitivities = pr$sensitivities, specificities = pr$specificities)
-    ggplot(pr_data, aes(x = 1 - specificities, y = sensitivities)) +
-      geom_line(color = "darkred") +
-      labs(title = "Precision-Recall (ROC) Curve", x = "False Positive Rate", y = "True Positive Rate") +
-      theme_minimal()
-  })
-  
   onStop(function() {
-    write.csv(state$data, validation_file, row.names = FALSE)
+    if (!is.null(save_path())) {
+      write.csv(state$data, save_path(), row.names = FALSE)
+    }
   })
 }
 
+# ==== LAUNCH ====
 shinyApp(ui, server)

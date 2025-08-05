@@ -1,91 +1,79 @@
 library(tuneR)
 library(dplyr)
 library(fs)
+library(stringr)
 
 # === CONFIG ===
-input_csv <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/results.csv"  # Your model's output
-audio_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model"
-output_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments"
-segment_length <- 5  # in seconds
-n_per_class <- 30    # number of segments to export per class
+input_csv <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/AEG20_RP/results.csv"  # Your model's output
+audio_folder <- "B:/2023/2024/HearTheSpecies_Grasslands/AEG20/AEG20_RP"
+output_folder <- "B:/diverses/HearTheSpecies/Database/Test_Insect_Model/segments2"
+segment_length <- 4   # seconds
+n_per_class    <- 30  # max segments per species
 
-# === READ PREDICTIONS ===
-preds <- read.csv(input_csv)
-preds <- preds %>%
-  select(-output) |> 
-  mutate(label = gsub("\\[|\\]|'", "", prediction),
-         label = gsub(" ", ".", label),
-         start = as.numeric(sub("^(\\d+\\.\\d+)-.*", "\\1", offset)),
-         end = as.numeric(sub(".*-(\\d+\\.\\d+)$", "\\1", offset))) |> 
-  filter(prediction != "[]") |> 
-  na.omit()
-  
-  
+# === READ & PREP DATA ===
+preds <- read.csv(input_csv) %>%
+  mutate(
+    # parse start/end (in seconds)
+    start = as.numeric(sub("^(\\d+\\.?\\d*)-.*", "\\1", offset)),
+    end   = as.numeric(sub(".*-(\\d+\\.?\\d*)$", "\\1", offset))
+  ) %>%
+  filter(!is.na(start), !is.na(end))
 
-# === EXPORT SEGMENTS ===
+# Identify “species score” columns (all numeric, except our new start/end)
+skip_cols <- c("offset","prediction","start","end","filename")
+species_cols <- preds %>% 
+  select(-one_of(skip_cols)) %>% 
+  select_if(is.numeric) %>% 
+  names()
+
+# ensure output folder exists
 dir_create(output_folder)
 
-for (i in seq_len(nrow(preds))) {
-  row <- preds[i, ]
-  class_dir <- file.path(output_folder, row$label)
-  dir_create(class_dir)
+# === LOOP OVER SPECIES ===
+for (sp in species_cols) {
+  message("Processing species: ", sp)
   
-  # Load original file
-  wav_path <- file.path(audio_folder, row$file)
-  if (!file.exists(wav_path)) next
+  # take all rows _with_ a non-zero score, then rank
+  top_rows <- preds %>%
+    filter(.data[[sp]] > 0) %>%
+    arrange(desc(.data[[sp]])) %>%
+    slice_head(n = n_per_class)
   
-  wav <- readWave(wav_path)
+  if (nrow(top_rows) == 0) {
+    message("  → no segments with positive score; skipping.")
+    next
+  }
   
-  # Calculate start and end in samples
-  samp_rate <- wav@samp.rate
-  start_sample <- as.integer(row$start * samp_rate)
-  end_sample <- start_sample + segment_length #* samp_rate - 1
+  # make species folder
+  sp_dir <- file.path(output_folder, sp)
+  dir_create(sp_dir)
   
-  if (end_sample > length(wav@left)) next  # skip if out of bounds
-  
-  # Extract segment
-  segment <- extractWave(wav, from = start_sample, to = end_sample, xunit = "samples")
-  
-  # Filename includes score and original file ID
-  outfile <- sprintf("%s_%.2f.wav", tools::file_path_sans_ext(row$file), row$score)
-  writeWave(segment, file.path(class_dir, outfile))
-}
-
-
-
-
-# nbew
-for (i in seq_len(nrow(preds))) {
-  row <- preds[i, ]
-  class_dir <- file.path(output_folder, row$label)
-  dir_create(class_dir)
-  
-  # Load original file
-  wav_path <- file.path(audio_folder, row$filename)
-  if (!file.exists(wav_path)) next
-  
-  wav <- readWave(wav_path)
-  
-  # Calculate start and end in samples
-  samp_rate <- wav@samp.rate
-  start_sample <- as.integer(row$start * samp_rate)
-  end_sample <- as.integer(row$end * samp_rate)
-  
-  if (end_sample > length(wav@left)) next
-  
-  # Extract segment
-  segment <- extractWave(wav, from = start_sample, to = end_sample, xunit = "samples")
-  
-  # --- 🔍 Get score dynamically ---
-  labels <- trimws(unlist(strsplit(row$label, ",")))  # e.g., c("Geo", "Sil")
-  
-  # Check these label columns exist in preds
-  valid_labels <- labels[labels %in% colnames(preds)]
-  
-  # Get the max score among predicted labels
-  score <- max(as.numeric(row[, valid_labels]), na.rm = TRUE)
-  
-  # Create output filename
-  outfile <- sprintf("%s_%.2f.wav", tools::file_path_sans_ext(basename(row$filename)), score)
-  writeWave(segment, file.path(class_dir, outfile))
+  # extract each top segment
+  for (i in seq_len(nrow(top_rows))) {
+    row <- top_rows[i, ]
+    
+    # load audio
+    wav_path <- file.path(audio_folder, row$filename)
+    if (!file.exists(wav_path)) {
+      warning("Missing file: ", wav_path); next
+    }
+    wav <- readWave(wav_path)
+    sr  <- wav@samp.rate
+    
+    # compute sample indices
+    from_samp <- as.integer(row$start * sr)
+    to_samp   <- from_samp + as.integer(segment_length * sr)
+    if (to_samp > length(wav@left)) {
+      warning("Segment exceeds bounds for ", row$filename); next
+    }
+    
+    seg <- extractWave(wav, from = from_samp, to = to_samp, xunit = "samples")
+    
+    # build filename: <orig>_<score>.wav
+    base <- tools::file_path_sans_ext(basename(row$filename))
+    score <- round(row[[sp]], 2)
+    out  <- sprintf("%s_%.2f.wav", base, score)
+    
+    writeWave(seg, file.path(sp_dir, out))
+  }
 }
