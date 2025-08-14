@@ -1,12 +1,23 @@
 library(dplyr)
 # load validation
-validated_files = read.csv("B:/diverses/HearTheSpecies/Database/Test_Insect_Model/all_28_07_25.csv")
+validated_files1 = read.csv("C:/Users/darend/Downloads/Results_Validation_Segments_1.csv",
+                           sep = ";")|> 
+  select(file, score, class, outcome)
+
+validated_files2 = read.csv("C:/Users/darend/Downloads/validation_segments_2.csv",
+                            sep = ";") |> 
+  mutate(class = species,
+          outcome = as.numeric(Validation)) |> 
+  select(file, score, class, outcome)
+
+validated_files = rbind(validated_files1, validated_files2)
 
 
 library(dplyr)
 library(ggplot2)
 library(purrr)
 library(broom)
+library(tidyr)
 
 # Assuming your data frame is called df
 # df <- read.csv("yourfile.csv")
